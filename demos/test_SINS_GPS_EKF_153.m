@@ -6,7 +6,10 @@
 % 27/02/2022
 glvs
 psinstypedef('test_SINS_GPS_EKF_153_def');
-trj = trjfile('trj10ms.mat');  % insplot(trj.avp);
+
+%trj = trjfile('trj10ms.mat');  % insplot(trj.avp);
+trj = trjfile('trj10ms.mat');
+
 % initial settings
 [nn, ts, nts] = nnts(2, trj.ts);
 imuerr = imuerrset(0.03, 100, 0.001, 5);
