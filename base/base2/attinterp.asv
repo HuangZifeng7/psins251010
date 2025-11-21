@@ -1,0 +1,17 @@
+function q1 = quainterp(q, t)
+% Attitude linear interpolation. 
+% It can be denoted as att = att1+(att2-att1)*ratio
+%
+% Prototype: att = attinterp(att1, att2, ratio)
+% Inputs: q - [q0,q1,q2,q3,t] array 
+%         t - interpolation time array t or interval ts
+% Output: q1 - interpolated quaternion out
+%
+% See also  avpinterp, attinterp1, qq2phi, qaddphi, q2att.
+
+% Copyright(c) 2009-2025, by Gongmin Yan, All rights reserved.
+% Northwestern Polytechnical University, Xi An, P.R.China
+% 21/05/2025
+    if length(t)==1;  t=q(1,end):t:q(end,end);  end  % ts->t
+    q0 = q(1,1:4);
+    

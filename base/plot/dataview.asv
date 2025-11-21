@@ -1,0 +1,24 @@
+function dataview(data, ts)
+% View data in the Simulation Data Inspector.
+%
+% Prototype: dataview(imu)
+% Inputs: imu - SIMU data, the last column is time tag
+%          
+% See also  imuview.
+%
+% Example
+%   dataview(randn(100,3), 0.01);
+
+% Copyright(c) 2009-2025, by Gongmin Yan, All rights reserved.
+% Northwestern Polytechnical University, Xi An, P.R.China
+% 03/09/2025
+    if nargin<2, ts=1; end
+    N = size(data,2);
+    if ts<0, t=data(:,end); N=N-1; end
+    Simulink.sdi.view; Simulink.sdi.clear;
+    viewRun = Simulink.sdi.Run.create;
+    for k=N
+        tsk = timeseries(t, imu(:,end), 'Name', [char(k));
+        add(viewRun,'vars',tsk);
+    end
+    % Simulink.sdi.close

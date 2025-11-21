@@ -1,0 +1,27 @@
+function gpplot(lat, lon, WH, aon)
+% Global postion plot.
+%
+% Prototype: gpplot(lat, lon)
+% Inputs: lat,lon - latitude, longitude
+%         WH - width & height scope
+%         aon - axis on flag
+%          
+% See also  gpsplot, insplot.
+
+% Copyright(c) 2009-2025, by Gongmin Yan, All rights reserved.
+% Northwestern Polytechnical University, Xi An, P.R.China
+% 28/09/2025
+global glv
+    if nargin<4, aon=1; end
+    if nargin<3, WH=[-1.1,1.1; -1.1,1.1]; end
+    if nargin<2, lon=lat(:,2); lat=lat(:,1); end
+    lon1 = lon(1);
+    lon = lon-lon(1);  s=1.01; 
+    slon = sin(lon); clon = cos(lon); 
+    slat = s*sin(lat); clat = s*cos(lat); 
+    x=s*clon.*clat; y=s*slon.*clat; z=s*slat;
+    myfig;
+    plot3(x,y,z,'LineWidth',2); hold on; plot3(x(1),y(1),z(1),'rp','LineWidth',2);
+    sphere(36); axis equal; view(90,90); xlim(WH(2,:)); ylim(WH(1,:));
+    title(['pos0=',sprintf('%.2f, ',[lon1,lat(1)]/glv.deg),'\circ']);
+    if aon==0,  axis off; end

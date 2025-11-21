@@ -1,0 +1,100 @@
+function [att0, attk, xkpk] = alignvntpv20kgz(imu, qnb, pos, phi0, imuerr, wvn, T1T2, isfig)
+% SINS two-position initial align uses Kalman filter with vn as measurement, with
+% the 2nd position emerging some velocity bias.
+% Kalman filter states: 
+%    [phiE,phiN,phiU, dvE,dvN,dvU, ebx,eby,ebz, dbx,dby,dbz, dvE20,dvN20, dkgz]'.
+%
+% Prototype: [att0, attk, xkpk] = alignvn(imu, qnb, pos, phi0, imuerr, wvn, T1T2, isfig)
+% Inputs: imu - IMU data
+%         qnb - coarse attitude quaternion
+%         pos - position
+%         phi0 - initial misalignment angles estimation
+%         imuerr - IMU error setting
+%         wvn - velocity measurement noise (3x1 vector)
+%         T1T2 - two-position rotation start&end time
+%         isfig - figure flag
+% Outputs: att0 - attitude align result
+%         attk, xkpk - for debug
+%
+% See also  alignvntp, alignvntpv20, alignvn.
+
+% Copyright(c) 2009-2025, by Gongmin Yan, All rights reserved.
+% Northwestern Polytechnical University, Xi An, P.R.China
+% 08/09/2025
+global glv
+    if nargin<8,  isfig = 1; end
+    if nargin<7,  T1T2 = [-inf;inf]; end
+    if nargin<6,  wvn = 0.01;  end;  if length(wvn)==1, wvn=repmat(wvn,3,1); end
+    if nargin<5,  imuerr = imuerrset(0.01, 100, 0.001, 1);  end
+    if nargin<4,  phi0 = [1.5; 1.5; 3]*glv.deg;  end
+    if length(pos)==1, pos=[pos;0;0]; end
+    [nn, ts, nts] = nnts(2, diff(imu(1:2,end)));
+    if length(qnb)==1, qnb=a2qua(aligni0(imu(1:fix(qnb/ts),:),pos,0)); % 11/12/2024
+    elseif length(qnb)==3, qnb=a2qua(qnb); end  %if input qnb is Eular angles.
+    len = fix(length(imu)/nn)*nn;
+    eth = earth(pos); vn = zeros(3,1); Cnn = rv2m(-eth.wnie*nts/2);
+    kf = avnkfinit(nts, pos, phi0, imuerr, wvn);
+    [attk, xkpk] = prealloc(fix(len/nn), 7, 2*kf.n+1);
+    ki = timebar(nn, len, 'Initial two-position align using vn as meas.');
+    for k=1:nn:len-nn+1
+        wvm = imu(k:k+nn-1,1:6);  t = imu(k+nn-1,end);
+        [phim, dvbm] = cnscl(wvm);
+        Cnb = q2mat(qnb);
+        dvn = Cnn*Cnb*dvbm;
+        vn = vn + dvn + eth.gn*nts;
+        qnb = qupdt2(qnb, phim, eth.wnin*nts);
+        Cnbts = Cnb*nts;  wnib=Cnb*phim;
+        kf.Phikk_1(4:6,1:3) = askew(dvn);  kf.Phikk_1(3,15) = -wnib(3);
+            kf.Phikk_1(1:3,7:9) = -Cnbts; kf.Phikk_1(4:6,10:12) = Cnbts;
+        if t<T1T2(1) || t>T1T2(2)  % no measurement
+            if t>T1T2(2)
+                kf.Hk(1:2,13:14)=eye(2);
+            end
+            kf = kfupdate(kf, vn);
+        else
+            kf = kfupdate(kf);
+        end
+        qnb = qdelphi(qnb, 0.91*kf.xk(1:3)); kf.xk(1:3) = 0.09*kf.xk(1:3);
+        vn = vn-0.91*kf.xk(4:6);  kf.xk(4:6) = 0.09*kf.xk(4:6);
+        attk(ki,:) = [q2att(qnb); vn; t]';
+        xkpk(ki,:) = [kf.xk; diag(kf.Pxk); t];
+        ki = timebar;
+    end
+    attk(ki:end,:) = []; xkpk(ki:end,:) = [];
+    att0 = attk(end,1:3)';
+    resdisp('Initial align attitudes (arcdeg)', att0/glv.deg);
+    if isfig, avnplot(attk, xkpk, T1T2); end
+    
+function kf = avnkfinit(nts, pos, phi0, imuerr, wvn)
+    eth = earth(pos); wnie = eth.wnie;
+    kf = []; kf.s = 1; kf.nts = nts;
+	kf.Qk = diag([imuerr.web; imuerr.wdb; zeros(6,1); zeros(2,1); zeros(1)])^2*nts;
+    kf.Gammak = 1;
+	kf.Rk = diag(wvn)^2/nts;
+	kf.Pxk = diag([phi0; [1;1;1]; imuerr.eb; imuerr.db; [0.1;0.1]; imuerr.dKg(3,3)])^2;
+	Ft = zeros(15); Ft(1:3,1:3) = askew(-wnie); kf.Phikk_1 = eye(15)+Ft*nts;
+	kf.Hk = [zeros(3),eye(3),zeros(3,6), zeros(3,2), zeros(3,1)];
+    kf = kfinit0(kf, nts);
+
+function avnplot(attk, xkpk, T1T2)
+global glv
+    if glv.isfig==0, return; end
+    t = attk(:,end);
+    myfigure; n=15;
+	subplot(421); plot(t, attk(:,1:2)/glv.deg); xygo('pr'); title('Xi');
+	subplot(423); plot(t, attk(:,3)/glv.deg); xygo('y');
+	subplot(425); plot(t, xkpk(:,7:9)/glv.dph); xygo('eb'); 
+	subplot(427); plot(t, xkpk(:,10:12)/glv.ug); xygo('db'); 
+	subplot(422); plot(t, sqrt(xkpk(:,n+(1:3)))/glv.min); xygo('phi'); title('\surdPii')
+	subplot(424); plot(t, sqrt(xkpk(:,n+(4:6)))); xygo('dv');
+	subplot(426); plot(t, sqrt(xkpk(:,n+(7:9)))/glv.dph); xygo('eb');
+ 	subplot(428); plot(t, sqrt(xkpk(:,n+(10:12)))/glv.ug); xygo('db');
+    myfig
+    a1 = datacut(attk,-inf,T1T2(1));  a2 = datacut(attk,T1T2(2),inf);
+    subplot(221); plot(a1(:,end), a1(:,3)/glv.deg); xygo('y');
+      legend(sprintf('\\psi_{10}=%.4f; \\psi_{11}=%.4f',a1(1,3)/glv.deg,a1(end,3)/glv.deg));
+    subplot(222); plot(a2(:,end), a2(:,3)/glv.deg); xygo('y');
+      legend(sprintf('\\psi_{20}=%.4f; \\psi_{21}=%.4f',a2(1,3)/glv.deg,a2(end,3)/glv.deg));
+      ptitle('\psi_{20}-\psi_{11}',(a2(1,3)-a1(end,3))/glv.deg, '\psi_{21}-\psi_{11}', (a2(end,3)-a1(end,3))/glv.deg);
+    subplot(223); plot(t, xkpk(:,13:14)); xygo('dv');  title(sprintf('%.4f, ',xkpk(end,13:14)));
+    subplot(224); plot(t, [xkpk(:,15),sqrt(xkpk(:,30))]/glv.ppm); xygo('dkgz');

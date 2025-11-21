@@ -1,0 +1,22 @@
+function imuview(imu)
+% SIMU data plot.
+%
+% Prototype: lost = imuplot(imu, type, t0)
+% Inputs: imu - SIMU data, the last column is time tag
+%         type - figure type
+%         t0 - plot time t0 as 0
+% Output: lost - lost index      
+%          
+% See also  imumeanplot, imutplot, cumangplot, insplot, inserrplot, kfplot, gpsplot, odplot, imuodplot, magplot, igsplot, ttest.
+
+% Copyright(c) 2009-2025, by Gongmin Yan, All rights reserved.
+% Northwestern Polytechnical University, Xi An, P.R.China
+% 03/09/2025
+global glv
+    dps = glv.dps; g0 = glv.g0;
+    Simulink.sdi.view;
+    viewrun = Simulink.sdi.Run.create;
+    for k=1:7
+        ts = timeseries(imu(:,k),imu(:,end));
+        add(sinusoidsRun,'vars',sine_ts,cos_ts);
+    end

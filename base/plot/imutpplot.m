@@ -1,0 +1,42 @@
+function imutpplot(imu, T1, T2)
+% SIMU two-position data plot.
+%
+% Prototype: imutpplot(imu, T1, T2)
+% Inputs: imu - SIMU data, the last column is time tag
+%         T1,T2 - begin/end rotation time
+%          
+% See also  imuplot, imumeanplot, imutplot.
+
+% Copyright(c) 2009-2025, by Gongmin Yan, All rights reserved.
+% Northwestern Polytechnical University, Xi An, P.R.China
+% 02/10/2025
+global glv
+    T12 = (imu(1,end)+imu(end,end))/2;  ts = diff(imu(1:2,end));
+    if nargin<2,  T1=10;  end
+    if nargin<3, T2=T12+T1; T1=T12-T1; end
+    i1  = datacut(imu,-inf,T1);  t1 = i1(:,end);    i1(:,4:6) =cumsum(i1(:,4:6));
+    i12 = datacut(imu, T1, T2);  t12 = i12(:,end);
+    i2  = datacut(imu, T2, inf); t2 = i1(:,end);    i2(:,4:6) =cumsum(i2(:,4:6));
+    myfig;
+    subplot(331), yyaxis left;  plot(t1, i1(:,1)/ts/glv.dph); xygo('wxdph');
+                  yyaxis right; plot(t1, deltrend(i1(:,4),1,0)); xygo('\Delta\itV_x\rm / m/s');
+    subplot(334), yyaxis left;  plot(t1, i1(:,2)/ts/glv.dph); xygo('wydph');
+                  yyaxis right; plot(t1, deltrend(i1(:,5),1,0)); xygo('\Delta\itV_y\rm / m/s');
+    subplot(337), yyaxis left;  plot(t1, i1(:,3)/ts/glv.dph); xygo('wzdph');
+                  yyaxis right; plot(t1, deltrend(i1(:,6),1,0)); xygo('\Delta\itV_z\rm / m/s');
+
+    subplot(332), yyaxis left;  plot(t12, i12(:,1)/ts/glv.dph); xygo('wxdph');
+                  yyaxis right; plot(t12, i12(:,4)/ts); xygo('fx');
+    subplot(335), yyaxis left;  plot(t12, i12(:,2)/ts/glv.dph); xygo('wydph');
+                  yyaxis right; plot(t12, i12(:,5)/ts); xygo('fy');
+    subplot(338), yyaxis left;  plot(t12, i12(:,3)/ts/glv.dph); xygo('wzdph');
+                  yyaxis right; plot(t12, i12(:,6)/ts); xygo('fz');
+
+    subplot(333), yyaxis left;  plot(t2, i2(:,1)/ts/glv.dph); xygo('wxdph');
+                  yyaxis right; plot(t2, deltrend(i2(:,4),1,0)); xygo('\Delta\itV_x\rm / m/s');
+    subplot(336), yyaxis left;  plot(t2, i2(:,2)/ts/glv.dph); xygo('wydph');
+                  yyaxis right; plot(t2, deltrend(i2(:,5),1,0)); xygo('\Delta\itV_y\rm / m/s');
+    subplot(339), yyaxis left;  plot(t2, i2(:,3)/ts/glv.dph); xygo('wzdph');
+                  yyaxis right; plot(t2, deltrend(i2(:,6),1,0)); xygo('\Delta\itV_z\rm / m/s');
+
+
