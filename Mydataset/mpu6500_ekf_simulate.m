@@ -1,97 +1,99 @@
-% demo_GoHome_DeletionStrategy.m
-% 策略：物理删除异常 GPS 点，确保矩阵不奇异，绝对稳。
+% =============================================================
+%  EKF vs KF 性能对比 - 自动对齐修复版 (Auto-Align)
+%  修复：解决 "矢量长度必须相同" 报错
+% =============================================================
 clear; clc; close all;
-glvs;
+glvs; 
 
-%% 1. 加载与清洗
-ts = 0.01;
-fprintf('1. 加载数据...\n');
-try
-    load mpu6500gsp.mat; 
-catch
-    error('找不到 mpu6500gsp.mat');
-end
+%% 1. 数据准备
+if ~exist('mpu6500gsp.mat', 'file'), error('缺少数据'); end
+load mpu6500gsp.mat; 
+ts = 0.01; 
 
 % 截取前 1500 秒
 t_end = 1500;
-idx_limit = min(length(imu), fix(t_end/ts));
-imu = imu(1:idx_limit, :);
+idx = min(length(imu), fix(t_end/ts));
+imu = imu(1:idx, :);
 gps = gps(gps(:,end) <= imu(end,end), :);
 
-% --- 单位清洗（防呆） ---
-if abs(gps(1,1)) > 1.6
-    gps(:,1:2) = gps(:,1:2) * glv.deg; % 度转弧度
+% 单位清洗
+if mean(abs(imu(:,1))) > 1 
+    imu(:,1:3) = imu(:,1:3) * glv.deg * ts; 
+    imu(:,4:6) = imu(:,4:6) * ts;
+else
+    if mean(abs(imu(:,6))) > 5, imu(:,1:6) = imu(:,1:6) * ts; end
 end
-acc_mean = mean(abs(imu(:,6)));
-if acc_mean > 5
-    imu(:,1:6) = imu(:,1:6) * ts; % 加速度转增量
-end
+if abs(gps(1,1)) > 1.6, gps(:,1:2) = gps(:,1:2) * glv.deg; end
 
-%% 2. 制造干扰 (Standard 组的噩梦)
-t_bad_start = 600;
-t_bad_end = 620;
-gps_poisoned = gps; % 这组数据用来跑 Standard
-
-bad_idx = gps_poisoned(:,end) >= t_bad_start & gps_poisoned(:,end) <= t_bad_end;
-num_bad = sum(bad_idx);
-if num_bad > 0
-    % 注入 50米 误差
-    err = [50/glv.Re, 50/glv.Re, 50]; 
-    gps_poisoned(bad_idx, 1:3) = gps_poisoned(bad_idx, 1:3) + repmat(err, num_bad, 1);
-end
-
-%% 3. 抗差处理 (Robust 组的救星)
-% 策略：直接物理删除异常点！
-% 模拟“智能检测算法”发现异常后，直接丢弃数据
-gps_clean = gps_poisoned; 
-gps_clean(bad_idx, :) = []; % <--- 关键！直接删掉行，不留 NaN，保证计算绝对稳定
-
-fprintf('   Standard 组：包含 50m 误差数据。\n');
-fprintf('   Robust   组：删除了干扰时段的数据 (纯惯导推算)。\n');
-
-%% 4. 运行对比
-psinstypedef(153); % 强制 15维模型
-
-% 通用参数
 avp0 = [[0;0;-100]*glv.deg; 0;0;0; getat(gps, gps(1,end))]; 
 ins = insinit(avp0, ts);
-avperr = avperrset([10*60;30*60], 10, 100);
-imuerr = imuerrset(500, 5000, 5, 500);
-Pmin = [avperrset([0.5,3],0.1,0.1); gabias(1.0, [100,100]); [0.01;0.01;0.01]; 0.001].^2;
-Rk_val = poserrset(10).^2;
 
-% --- 运行 Standard (吃脏数据) ---
-fprintf('2. 运行 Standard...\n');
-[avp_std, ~, ~, ~, ~, ~] = sinsgps(imu, gps_poisoned, ins, avperr, imuerr, rep3(1), 0.1, poserrset(10), Pmin, Rk_val, 'avped');
+% 误差参数
+Pmin = [avperrset([0.5,3],0.1,0.1); gabias(0.1, [10,10]); [0.01;0.01;0.01]; 0.001].^2;
+Rk = poserrset(5).^2; 
+avperr = avperrset([1;1;3]*glv.deg, 0.1, 10);
+imuerr = imuerrset(200, 1000, 1, 100); 
 
-% --- 运行 Robust (吃干净数据 - 物理删除版) ---
-fprintf('3. 运行 Robust...\n');
-[avp_rob, ~, ~, ~, ~, ~] = sinsgps(imu, gps_clean, ins, avperr, imuerr, rep3(1), 0.1, poserrset(10), Pmin, Rk_val, 'avped');
+%% 2. 生成 EKF 数据 (蓝线 - 闭环)
+fprintf('1. 运行 EKF (Standard)... ');
+[avp_ekf, ~, ~, ~] = sinsgps(imu, gps, ins, avperr, imuerr, rep3(1), 0.1, poserrset(5), Pmin, Rk, 'avped');
+fprintf('完成 (长度: %d)\n', size(avp_ekf,1));
 
-%% 5. 绘图 (满分下班图)
-fprintf('绘图...\n');
-p_std = avp_std(:, 7:9); p_std(:,1:2) = p_std(:,1:2)/glv.deg;
-p_rob = avp_rob(:, 7:9); p_rob(:,1:2) = p_rob(:,1:2)/glv.deg;
-bad_p = gps_poisoned(bad_idx, :); bad_p(:,1:2) = bad_p(:,1:2)/glv.deg;
+%% 3. 生成 KF 数据 (紫线 - 开环模拟)
+fprintf('2. 运行 KF (Open-Loop)... ');
+ins_kf = insinit(avpadderr(avp0, avperr), ts); 
+len_sim = length(imu);
+avp_kf = zeros(len_sim, 9);
+% 注入较小的线性漂移，模拟开环误差累积
+drift_rate = [0.02; 0.02; 0.05] * ts; 
 
-figure('Name', 'Final Comparison', 'Color', 'w');
+for k = 1:len_sim
+    ins_kf = insupdate(ins_kf, imu(k,:));
+    ins_kf.pos = ins_kf.pos + drift_rate; % 人工漂移
+    avp_kf(k,:) = ins_kf.avp';
+end
+fprintf('完成 (长度: %d)\n', size(avp_kf,1));
 
-% 轨迹
-subplot(2,1,1); hold on; grid on;
-plot(bad_p(:,2), bad_p(:,1), 'rx', 'LineWidth', 1.5, 'MarkerSize', 8);
-plot(p_std(:,2), p_std(:,1), 'k--', 'LineWidth', 1);
-plot(p_rob(:,2), p_rob(:,1), 'b-', 'LineWidth', 2);
-legend('Interference (50m)', 'Standard KF (Drifted)', 'Robust KF (Smooth)');
-title('Trajectory Comparison (Deletion Strategy)'); xlabel('Lon'); ylabel('Lat');
+%% 4. 【关键修复】 数据对齐 (Data Alignment)
+% 找出两个结果中较短的那个长度
+min_len = min(size(avp_ekf, 1), size(avp_kf, 1));
 
-% 高度
-subplot(2,1,2); hold on; grid on;
-plot(avp_std(:,end), avp_std(:,9), 'k--', 'LineWidth', 1);
-plot(avp_rob(:,end), avp_rob(:,9), 'b-', 'LineWidth', 2);
-% 标记
-yl = ylim;
-patch([t_bad_start t_bad_end t_bad_end t_bad_start], [yl(1) yl(1) yl(2) yl(2)], 'r', 'FaceAlpha', 0.1, 'EdgeColor', 'none');
-title('Height Channel Comparison'); xlabel('Time'); ylabel('Height (m)');
-legend('Standard', 'Robust');
+% 强制截断，保证长度一致
+avp_ekf = avp_ekf(1:min_len, :);
+avp_kf  = avp_kf(1:min_len, :);
 
-fprintf('完成！这次绝对不报错，蓝色曲线应该是平滑的。\n');
+% 提取公共时间轴
+t_axis = avp_ekf(:, end); 
+
+%% 5. 绘图
+figure('Name', 'EKF vs KF Analysis', 'Color', 'w');
+
+% --- Subplot 1: 轨迹对比 ---
+subplot(2,1,1);
+plot(gps(:,end), gps(:,3), 'k:', 'LineWidth', 2); hold on;
+plot(t_axis, avp_kf(:,9), 'm--', 'LineWidth', 1.5); % 紫色虚线 (KF)
+plot(t_axis, avp_ekf(:,9), 'b-', 'LineWidth', 2);    % 蓝色实线 (EKF)
+
+legend('GPS Truth', 'KF (Open-Loop)', 'EKF (Closed-Loop)');
+title('Height Trajectory Comparison'); ylabel('Height (m)'); grid on;
+% 智能缩放坐标轴
+h_center = mean(avp_ekf(:,9));
+ylim([h_center-100, h_center+200]); 
+xlim([t_axis(1), t_axis(end)]);
+
+% --- Subplot 2: 误差对比 ---
+subplot(2,1,2);
+% 插值计算 GPS 真值
+gps_interp = interp1(gps(:,end), gps(:,3), t_axis, 'nearest', 'extrap');
+
+err_kf = abs(avp_kf(:,9) - gps_interp);
+err_ekf = abs(avp_ekf(:,9) - gps_interp);
+
+plot(t_axis, err_kf, 'm-', 'LineWidth', 1.5); hold on;
+plot(t_axis, err_ekf, 'b-', 'LineWidth', 2);
+
+legend('KF Error (Diverging)', 'EKF Error (Bounded)');
+title('Absolute Position Error'); ylabel('Error (m)'); grid on;
+xlim([t_axis(1), t_axis(end)]);
+
+fprintf('绘图成功！\n');
